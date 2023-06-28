@@ -1,0 +1,16 @@
+{
+  "name": "roachkv",
+  "version": "0.0.0",
+  "module": "src/main.ts",
+  "type": "module",
+  "devDependencies": {
+    "bun-types": "^0.6.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "postgres": "^3.3.5",
+    "typechecked": "^0.0.12"
+  }
+}
