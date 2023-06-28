@@ -1,5 +1,5 @@
 import { postgres } from "./postgres.ts"
-import { isRecord } from 'typechecked';
+import { isPartialRecord, isRecord } from 'typechecked';
 
 interface DeleteOptions {
     soft: boolean
@@ -8,8 +8,6 @@ interface DeleteOptions {
 const DefaultDeleteOptions = {
     soft: true
 }
-
-type isRecordInput = Parameters<typeof isRecord>[0]
 
 async function createTable(name: string, sql: postgres.Sql) {
 
@@ -41,11 +39,27 @@ async function createTable(name: string, sql: postgres.Sql) {
 //     fields: Record<string, isRecordInput>
 // }>
 
-type TableDefinition = {
+type ValidatorFunc = (arg: unknown, msg?: string) => unknown
+type ValidatorInput = Record<string, ValidatorFunc | {[key: string]: ValidatorFunc}>
+
+type TableDefinition<X extends ValidatorInput = ValidatorInput> = {
     readonly [K: string]: {
-        fields: Record<string, isRecordInput>
+        fields: X
     }
 }
+type TableDefinitionKnownTable<T extends TableDefinition> = keyof T
+type TableDefinitionKnownTableFields<
+    D extends TableDefinition,
+    X extends TableDefinitionKnownTable<D>
+> = D[X]['fields']
+
+
+type InputValueTypeForSet<T extends TableDefinition,
+    TX extends TableDefinitionKnownTable<T>,
+    F extends TableDefinitionKnownTableFields<T, TX> = TableDefinitionKnownTableFields<T, TX>
+> = {
+        [K in keyof F]: F[K] extends ValidatorFunc ? ReturnType<F[K]> : never
+    }
 
 export function RoachKV<T extends TableDefinition>(DB_URL: string, tableDefinition: T) {
     type KnownTable = keyof T
@@ -60,7 +74,8 @@ export function RoachKV<T extends TableDefinition>(DB_URL: string, tableDefiniti
          * @param key - The Key to retrieve. Format is [tableName, UniqueID]
          * @param value - The Value associated with Key
          */
-        async set(identifier: [KnownTable, string, string?], value: Record<string, unknown> = {}) {
+        // InputValueTypeForSet<T, KT>
+        async set<KT extends KnownTable>(identifier: [KT, string, string?], value: Record<string, unknown>) {
             const tableName = identifier[0] as string;
             const tableID = identifier[1]
 
@@ -71,6 +86,9 @@ export function RoachKV<T extends TableDefinition>(DB_URL: string, tableDefiniti
                 if (identifier.length === 3) {
                     key = identifier[2] || null;
                 }
+
+                const validator = isRecord(tableDefinition[tableName].fields);
+                validator(value)
 
                 const query = sql`
                     INSERT INTO ${sql(tableName)} (id, key, data, creation_date, last_updated_date) 
@@ -92,6 +110,9 @@ export function RoachKV<T extends TableDefinition>(DB_URL: string, tableDefiniti
         async update(key: [KnownTable, string], newData: Record<string, any>) {
             const [tableName, tableID] = key;
 
+            const validator = isPartialRecord(tableDefinition[tableName].fields);
+            validator(newData)
+
             const existing = await this.get(key);
 
             if (existing) {
@@ -112,7 +133,7 @@ export function RoachKV<T extends TableDefinition>(DB_URL: string, tableDefiniti
 
         async get(key: [KnownTable, string, string?]) {
 
-            const tableName = key[0] as string
+            const tableName = key[0]
             const tableID = key[1]
             const tableKey = key[2]
 
@@ -120,11 +141,11 @@ export function RoachKV<T extends TableDefinition>(DB_URL: string, tableDefiniti
 
             if (key.length === 2) {
                 query = await sql`
-                  SELECT * FROM ${sql(tableName)} WHERE id = ${tableID}
+                  SELECT * FROM ${sql(tableName as string)} WHERE id = ${tableID}
                 `;
             } else {
                 query = await sql`
-                  SELECT * FROM ${sql(tableName)} WHERE id = ${tableID} AND key = ${tableKey || null}
+                  SELECT * FROM ${sql(tableName as string)} WHERE id = ${tableID} AND key = ${tableKey || null}
                 `;
             }
 
@@ -133,7 +154,13 @@ export function RoachKV<T extends TableDefinition>(DB_URL: string, tableDefiniti
                 value.data = JSON.parse(value.data)
             }
 
-            return value;
+            type T = typeof tableDefinition[typeof tableName]['fields']
+            type K = { [K in keyof T]: ReturnType<T[K]> }
+
+            return value as {
+                [K: string]: any
+                data: K
+            }
         },
 
         async delete(key: [KnownTable, string], _options: DeleteOptions = DefaultDeleteOptions) {

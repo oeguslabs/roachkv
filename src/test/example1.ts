@@ -4,10 +4,11 @@ import RoachKV from '../main.ts'
 const tableDefinition = {
     users: {
         fields: {
-            name: {
-                firstName: isString,
-                lastName: isString,
-                age: isInteger,
+            firstName: isString,
+            lastName: isString,
+            age: isInteger,
+            address: {
+                line1: isString,
             }
         }
     }
@@ -19,7 +20,9 @@ async function main() {
     await kv.delete(['users', 'newuser']);
 
     await kv.set(['users', 'newuser'], {
-        username: "Alloys"
+        firstName: "Alloys",
+        lastName: "Mila",
+        age: 23
     })
 
     let data = await kv.get(['users', 'newuser'])
@@ -32,7 +35,7 @@ async function main() {
     console.log("updated data");
 
     let newdata = await kv.get(['users', 'newuser'])
-    console.log(newdata);
+    console.log(newdata.data.firstName);
 }
 
 main();
